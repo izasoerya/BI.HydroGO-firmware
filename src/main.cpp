@@ -10,7 +10,7 @@
 const char* DEFAULT_WIFI_SSID = "hydrogoo";
 const char* DEFAULT_WIFI_PASSWORD = "hydrogoo";
 const char* SUPABASE_URL_SENSORS = "https://ntudiforfsotyqdufhxu.supabase.co/rest/v1/sensor_logs";
-const char* SUPABASE_KEY = "eyJhbGciOiJI tozI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im50dWRpZm9yZnNvdHlxZHVmaHh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkxMjUzMTksImV4cCI6MjA3NDcwMTMxOX0.nSlLo-F6fUs-5hnqq2lt3zk8OU1wRnIjjCvBEMsqe1Y";
+const char* SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im50dWRpZm9yZnNvdHlxZHVmaHh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkxMjUzMTksImV4cCI6MjA3NDcwMTMxOX0.nSlLo-F6fUs-5hnqq2lt3zk8OU1wRnIjjCvBEMsqe1Y";
 const unsigned long SUPABASE_SEND_INTERVAL = 10000;
 
 // --- KONFIGURASI UMUM ---
@@ -25,8 +25,6 @@ const int buttonPins[] = {32, 35, 34, 39, 36};
 const int NUM_BUTTONS = 5;
 const int PH_MINUS_RELAY_INDEX = 3;
 const int PH_PLUS_RELAY_INDEX = 4;
-const float phTargetMin = 5.8;
-const float phTargetMax = 6.2;
 const unsigned long AUTOMATION_START_DELAY = 180000;
 const unsigned long PUMP_ON_DURATION = 2000;
 const unsigned long PUMP_COOLDOWN_DURATION = 30000;
@@ -36,7 +34,7 @@ const unsigned long LCD_UPDATE_INTERVAL = 500;
 enum OperatingMode { NORMAL, CALIBRATION };
 OperatingMode currentMode = NORMAL;
 
-enum CalibrationMode { NONE, PH_CAL, TDS_CAL };
+enum CalibrationMode { NONE, PH_CAL, TDS_CAL, PH_THRESH_MIN_CAL, PH_THRESH_MAX_CAL };
 CalibrationMode calMode = NONE;
 
 // --- OBJEK & VARIABEL GLOBAL ---
@@ -44,7 +42,7 @@ LiquidCrystal_I2C lcd(LCD_ADDRESS, LCD_COLS, LCD_ROWS);
 AnalogSensorService sensorService(SENSOR_5V_RELAY_PIN, SENSOR_GND_RELAY_PIN);
 Preferences preferences;
 
-// Variabel state
+// Variabel state & konfigurasi
 int selectedPumpIndex = 0;
 unsigned long buttonPressStartTime = 0;
 bool buttonHeld = false;
@@ -62,10 +60,12 @@ bool isDosing = false;
 unsigned long doseStartTime = 0;
 int dosingRelayIndex = -1;
 bool relayStates[NUM_RELAYS] = {false};
+float phTargetMin = 5.8; // Sekarang menjadi variabel, bukan konstanta
+float phTargetMax = 6.2; // Sekarang menjadi variabel, bukan konstanta
 
 
 // --- FUNGSI PROTOTIPE ---
-void loadCalibrationData();
+void loadConfiguration();
 void handleNormalMode();
 void handleCalibrationMode();
 void updateNormalDisplay();
@@ -79,7 +79,7 @@ void handleDosing();
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("\n--- Sistem Monitoring v9.0 (Intuitive UI) ---");
+  Serial.println("\n--- Sistem Monitoring v10.0 (Configurable Thresholds) ---");
   lcd.init();
   lcd.backlight();
   lcd.setCursor(0, 0); lcd.print("Inisialisasi...");
@@ -91,9 +91,8 @@ void setup() {
   }
 
   setupWifi();
-  // Gunakan nilai dasar untuk sensor service, offset diatur di main.cpp
   sensorService.setCompensationPH(-8.491, 35.597); 
-  loadCalibrationData();
+  loadConfiguration();
   sensorService.begin();
   
   Serial.println("Sistem berjalan dalam mode NORMAL.");
@@ -117,12 +116,15 @@ void loop() {
   }
 }
 
-void loadCalibrationData() {
+void loadConfiguration() {
   preferences.begin("sensor-cal", true);
   phCalibrationOffset = preferences.getFloat("ph_offset", 0.0);
   tdsCalibrationOffset = preferences.getFloat("tds_offset", 0.0);
+  phTargetMin = preferences.getFloat("ph_min", 5.8);
+  phTargetMax = preferences.getFloat("ph_max", 6.2);
   preferences.end();
-  Serial.printf("Data kalibrasi dimuat: pH Offset=%.3f, TDS Offset=%.0f\n", phCalibrationOffset, tdsCalibrationOffset);
+  Serial.printf("Konfigurasi dimuat: pH Offset=%.2f, TDS Offset=%.0f, pH Target=%.2f-%.2f\n",
+                phCalibrationOffset, tdsCalibrationOffset, phTargetMin, phTargetMax);
 }
 
 void handleNormalMode() {
@@ -144,8 +146,7 @@ void handleNormalMode() {
     } else if (millis() - buttonPressStartTime > 3000) {
       currentMode = CALIBRATION;
       calMode = PH_CAL;
-      // Muat nilai TERSIMPAN saat ini ke variabel offset kerja
-      loadCalibrationData();
+      loadConfiguration(); // Muat nilai TERSIMPAN saat ini ke variabel kerja
       Serial.println("Masuk ke Mode Kalibrasi.");
       lcd.clear(); lcd.print("Mode Kalibrasi"); delay(1000);
       buttonHeld = false;
@@ -166,14 +167,18 @@ void handleNormalMode() {
 
 void handleCalibrationMode() {
   // Tombol B4 (Turun) dan B5 (Naik)
-  if (digitalRead(buttonPins[3]) == LOW) {
+  if (digitalRead(buttonPins[3]) == LOW) { // TURUN
     if (calMode == PH_CAL) phCalibrationOffset -= phChangeStep;
-    else tdsCalibrationOffset -= tdsChangeStep;
+    else if (calMode == TDS_CAL) tdsCalibrationOffset -= tdsChangeStep;
+    else if (calMode == PH_THRESH_MIN_CAL) phTargetMin -= phChangeStep;
+    else if (calMode == PH_THRESH_MAX_CAL) phTargetMax -= phChangeStep;
     delay(100);
   }
-  if (digitalRead(buttonPins[4]) == LOW) {
+  if (digitalRead(buttonPins[4]) == LOW) { // NAIK
     if (calMode == PH_CAL) phCalibrationOffset += phChangeStep;
-    else tdsCalibrationOffset += tdsChangeStep;
+    else if (calMode == TDS_CAL) tdsCalibrationOffset += tdsChangeStep;
+    else if (calMode == PH_THRESH_MIN_CAL) phTargetMin += phChangeStep;
+    else if (calMode == PH_THRESH_MAX_CAL) phTargetMax += phChangeStep;
     delay(100);
   }
 
@@ -183,25 +188,33 @@ void handleCalibrationMode() {
       buttonPressStartTime = millis();
       buttonHeld = true;
     } else if (millis() - buttonPressStartTime > 3000) {
-      // Aksi TAHAN LAMA
+      // Aksi TAHAN LAMA (SIMPAN & LANJUT)
       if (calMode == PH_CAL) {
-        Serial.println("Kalibrasi pH disimpan sementara, lanjut ke TDS.");
         calMode = TDS_CAL;
         lcd.clear(); lcd.print("Lanjut ke TDS.."); delay(1000);
       } else if (calMode == TDS_CAL) {
+        calMode = PH_THRESH_MIN_CAL;
+        lcd.clear(); lcd.print("Set Batas Min pH"); delay(1000);
+      } else if (calMode == PH_THRESH_MIN_CAL) {
+        calMode = PH_THRESH_MAX_CAL;
+        lcd.clear(); lcd.print("Set Batas Max pH"); delay(1000);
+      } else if (calMode == PH_THRESH_MAX_CAL) {
+        // Tahap terakhir: simpan semua ke NVS
         preferences.begin("sensor-cal", false);
         preferences.putFloat("ph_offset", phCalibrationOffset);
         preferences.putFloat("tds_offset", tdsCalibrationOffset);
+        preferences.putFloat("ph_min", phTargetMin);
+        preferences.putFloat("ph_max", phTargetMax);
         preferences.end();
-        Serial.println("Semua data kalibrasi disimpan permanen.");
+        Serial.println("Semua konfigurasi disimpan permanen.");
         lcd.clear(); lcd.print("Tersimpan!"); delay(1000);
         ESP.restart();
       }
       buttonHeld = false;
     }
   } else {
-    if (buttonHeld) { // Aksi KLIK BIASA
-      if (calMode == PH_CAL) {
+    if (buttonHeld) { // Aksi KLIK BIASA (UBAH STEP)
+      if (calMode == PH_CAL || calMode == PH_THRESH_MIN_CAL || calMode == PH_THRESH_MAX_CAL) {
         phChangeStep = (phChangeStep == 0.01) ? 0.1 : 0.01;
       } else if (calMode == TDS_CAL) {
         if (tdsChangeStep == 1) tdsChangeStep = 10;
@@ -247,14 +260,32 @@ void updateNormalDisplay() {
 void updateCalibrationDisplay() {
   char line1[17], line2[17];
   
-  if (calMode == PH_CAL) {
-    float basePhValue = sensorService.getCalibratedPHValue();
-    snprintf(line1, sizeof(line1), "pH Asli: %.2f", basePhValue);
-    snprintf(line2, sizeof(line2), "Target: %.2f(%.2f)", basePhValue + phCalibrationOffset, phChangeStep);
-  } else if (calMode == TDS_CAL) {
-    float baseTdsValue = sensorService.getCalibratedTDSValue(25.0);
-    snprintf(line1, sizeof(line1), "TDS Asli: %.0f", baseTdsValue);
-    snprintf(line2, sizeof(line2), "Target: %.0f(%d)", baseTdsValue + tdsCalibrationOffset, tdsChangeStep);
+  switch(calMode) {
+    case PH_CAL:
+      {
+        float basePhValue = sensorService.getCalibratedPHValue();
+        snprintf(line1, sizeof(line1), "Kalibrasi pH");
+        snprintf(line2, sizeof(line2), "Trgt:%.2f(%.2f)", basePhValue + phCalibrationOffset, phChangeStep);
+      }
+      break;
+    case TDS_CAL:
+      {
+        float baseTdsValue = sensorService.getCalibratedTDSValue(25.0);
+        snprintf(line1, sizeof(line1), "Kalibrasi TDS");
+        snprintf(line2, sizeof(line2), "Trgt:%.0f(%d)", baseTdsValue + tdsCalibrationOffset, tdsChangeStep);
+      }
+      break;
+    case PH_THRESH_MIN_CAL:
+      snprintf(line1, sizeof(line1), "Set Batas Min pH");
+      snprintf(line2, sizeof(line2), "Nilai: %.2f(%.2f)", phTargetMin, phChangeStep);
+      break;
+    case PH_THRESH_MAX_CAL:
+      snprintf(line1, sizeof(line1), "Set Batas Max pH");
+      snprintf(line2, sizeof(line2), "Nilai: %.2f(%.2f)", phTargetMax, phChangeStep);
+      break;
+    default:
+      snprintf(line1, sizeof(line1), "Mode Tidak Dikenal");
+      break;
   }
   
   lcd.setCursor(0, 0); lcd.print(line1);
@@ -264,7 +295,7 @@ void updateCalibrationDisplay() {
 
 void handleAutomation() {
     if (millis() < AUTOMATION_START_DELAY) return;
-    if (digitalRead(buttonPins[1]) == LOW) return; // Jangan jalankan auto jika pompa manual aktif
+    if (digitalRead(buttonPins[1]) == LOW) return;
     if (millis() - lastDoseTime < PUMP_COOLDOWN_DURATION) return;
     if (!sensorService.isPhActiveNow()) return;
     
