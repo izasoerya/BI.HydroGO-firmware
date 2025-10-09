@@ -10,7 +10,7 @@
 const char* DEFAULT_WIFI_SSID = "hydrogoo";
 const char* DEFAULT_WIFI_PASSWORD = "hydrogoo";
 const char* SUPABASE_URL_SENSORS = "https://ntudiforfsotyqdufhxu.supabase.co/rest/v1/sensor_logs";
-const char* SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im50dWRpZm9yZnNvdHlxZHVmaHh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkxMjUzMTksImV4cCI6MjA3NDcwMTMxOX0.nSlLo-F6fUs-5hnqq2lt3zk8OU1wRnIjjCvBEMsqe1Y";
+const char* SUPABASE_KEY = "eyJhbGciOiJI tozI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im50dWRpZm9yZnNvdHlxZHVmaHh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkxMjUzMTksImV4cCI6MjA3NDcwMTMxOX0.nSlLo-F6fUs-5hnqq2lt3zk8OU1wRnIjjCvBEMsqe1Y";
 const unsigned long SUPABASE_SEND_INTERVAL = 10000;
 
 // --- KONFIGURASI UMUM ---
@@ -79,7 +79,7 @@ void handleDosing();
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("\n--- Sistem Monitoring v9.0 ---");
+  Serial.println("\n--- Sistem Monitoring v9.0 (Intuitive UI) ---");
   lcd.init();
   lcd.backlight();
   lcd.setCursor(0, 0); lcd.print("Inisialisasi...");
