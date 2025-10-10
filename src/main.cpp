@@ -35,14 +35,15 @@ const int PUMP_PH_PLUS_RELAY_INDEX = 4;  // Pompa 5: pH Up
 const unsigned long AUTOMATION_START_DELAY = 180000; // 3 menit
 const unsigned long LCD_UPDATE_INTERVAL = 500;
 
+// --- PENGATURAN UNTUK DEMO PAMERAN ---
 // Pengaturan Dosing pH
 const unsigned long PUMP_PH_ON_DURATION = 2000; // 2 detik
-const unsigned long PUMP_PH_COOLDOWN_DURATION = 30000; // 30 detik
+const unsigned long PUMP_PH_COOLDOWN_DURATION = 15000; // DEMO: 15 detik (Normal: 30000)
 
-// Pengaturan Dosing Pupuk (BARU!)
+// Pengaturan Dosing Pupuk
 const unsigned long FERTILIZER_MIX_DURATION = 5000; // 5 detik Pompa A & B nyala
 const unsigned long FERTILIZER_PUSH_DURATION = 3000; // 3 detik Pompa Mix nyala
-const unsigned long FERTILIZER_COOLDOWN_DURATION = 600000; // 10 menit
+const unsigned long FERTILIZER_COOLDOWN_DURATION = 45000; // DEMO: 45 detik (Normal: 600000)
 
 // --- ENUM & STATE UNTUK MODE OPERASI ---
 enum OperatingMode { NORMAL, CALIBRATION };
@@ -81,7 +82,7 @@ unsigned long fertilizerDoseStartTime = 0;
 bool relayStates[NUM_RELAYS] = {false};
 float phTargetMin = 5.8;
 float phTargetMax = 6.2;
-float tdsTargetMin = 700; // Target TDS minimum (BARU!)
+float tdsTargetMin = 700;
 
 
 // --- FUNGSI PROTOTIPE ---
@@ -102,7 +103,7 @@ void handleFertilizerDosing();
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("\n--- Sistem Monitoring v11.0 (Auto Nutrisi) ---");
+  Serial.println("\n--- Sistem Monitoring v11.1 (Mode Pameran) ---");
   lcd.init();
   lcd.backlight();
   lcd.setCursor(0, 0); lcd.print("Inisialisasi...");
@@ -140,12 +141,12 @@ void loop() {
 }
 
 void loadConfiguration() {
-  preferences.begin("sensor-cfg", true); // Ganti nama grup
+  preferences.begin("sensor-cfg", true);
   phCalibrationOffset = preferences.getFloat("ph_offset", 0.0);
   tdsCalibrationOffset = preferences.getFloat("tds_offset", 0.0);
   phTargetMin = preferences.getFloat("ph_min", 5.8);
   phTargetMax = preferences.getFloat("ph_max", 6.2);
-  tdsTargetMin = preferences.getFloat("tds_min", 700); // BARU!
+  tdsTargetMin = preferences.getFloat("tds_min", 700);
   preferences.end();
   Serial.printf("Konfigurasi dimuat: pH Offset=%.2f, TDS Offset=%.0f, pH Target=%.2f-%.2f, TDS Min=%.0f\n",
                 phCalibrationOffset, tdsCalibrationOffset, phTargetMin, phTargetMax, tdsTargetMin);
@@ -219,14 +220,14 @@ void handleCalibrationMode() {
       if (calMode == PH_CAL) { calMode = TDS_CAL; lcd.clear(); lcd.print("Lanjut ke TDS.."); delay(1000); } 
       else if (calMode == TDS_CAL) { calMode = PH_THRESH_MIN_CAL; lcd.clear(); lcd.print("Set Batas Min pH"); delay(1000); } 
       else if (calMode == PH_THRESH_MIN_CAL) { calMode = PH_THRESH_MAX_CAL; lcd.clear(); lcd.print("Set Batas Max pH"); delay(1000); } 
-      else if (calMode == PH_THRESH_MAX_CAL) { calMode = TDS_THRESH_MIN_CAL; lcd.clear(); lcd.print("Set Batas Min TDS"); delay(1000); } // BARU!
+      else if (calMode == PH_THRESH_MAX_CAL) { calMode = TDS_THRESH_MIN_CAL; lcd.clear(); lcd.print("Set Batas Min TDS"); delay(1000); }
       else if (calMode == TDS_THRESH_MIN_CAL) {
         preferences.begin("sensor-cfg", false);
         preferences.putFloat("ph_offset", phCalibrationOffset);
         preferences.putFloat("tds_offset", tdsCalibrationOffset);
         preferences.putFloat("ph_min", phTargetMin);
         preferences.putFloat("ph_max", phTargetMax);
-        preferences.putFloat("tds_min", tdsTargetMin); // BARU!
+        preferences.putFloat("tds_min", tdsTargetMin);
         preferences.end();
         Serial.println("Semua konfigurasi disimpan permanen.");
         lcd.clear(); lcd.print("Tersimpan!"); delay(1000);
@@ -299,7 +300,7 @@ void updateCalibrationDisplay() {
       snprintf(line1, sizeof(line1), "Set Batas Max pH");
       snprintf(line2, sizeof(line2), "Nilai: %.2f(%.2f)", phTargetMax, phChangeStep);
       break;
-    case TDS_THRESH_MIN_CAL: // BARU!
+    case TDS_THRESH_MIN_CAL:
       snprintf(line1, sizeof(line1), "Set Batas Min TDS");
       snprintf(line2, sizeof(line2), "Nilai: %.0f(%d)", tdsTargetMin, tdsChangeStep);
       break;
@@ -316,7 +317,7 @@ void handlePhAutomation() {
     if (millis() < AUTOMATION_START_DELAY) return;
     if (digitalRead(buttonPins[1]) == LOW) return;
     if (millis() - lastPhDoseTime < PUMP_PH_COOLDOWN_DURATION) return;
-    if (!sensorService.isPhActiveNow()) return; // Hanya cek pH saat mode pH
+    if (!sensorService.isPhActiveNow()) return;
     
     float currentPh = sensorService.getCalibratedPHValue() + phCalibrationOffset;
     if (currentPh <= 0) return;
@@ -332,8 +333,8 @@ void handleFertilizerAutomation() {
     if (millis() < AUTOMATION_START_DELAY) return;
     if (digitalRead(buttonPins[1]) == LOW) return;
     if (millis() - lastFertilizerDoseTime < FERTILIZER_COOLDOWN_DURATION) return;
-    if (sensorService.isPhActiveNow()) return; // Hanya cek TDS saat mode TDS
-    if (fertilizerDoseState != FERTILIZER_IDLE) return; // Jangan mulai jika sedang dosing
+    if (sensorService.isPhActiveNow()) return;
+    if (fertilizerDoseState != FERTILIZER_IDLE) return;
 
     float currentTds = sensorService.getCalibratedTDSValue(25.0) + tdsCalibrationOffset;
     if (currentTds <= 0) return;
@@ -410,8 +411,8 @@ void startFertilizerDose() {
     Serial.println("Memulai sekuens dosing nutrisi...");
     fertilizerDoseState = FERTILIZER_MIXING;
     fertilizerDoseStartTime = millis();
-    digitalWrite(relayPins[PUMP_A_RELAY_INDEX], LOW); // Nyalakan Pompa A
-    digitalWrite(relayPins[PUMP_B_RELAY_INDEX], LOW); // Nyalakan Pompa B
+    digitalWrite(relayPins[PUMP_A_RELAY_INDEX], LOW);
+    digitalWrite(relayPins[PUMP_B_RELAY_INDEX], LOW);
     relayStates[PUMP_A_RELAY_INDEX] = true;
     relayStates[PUMP_B_RELAY_INDEX] = true;
 }
@@ -422,24 +423,24 @@ void handleFertilizerDosing() {
     if (fertilizerDoseState == FERTILIZER_MIXING) {
         if (millis() - fertilizerDoseStartTime >= FERTILIZER_MIX_DURATION) {
             Serial.println("Tahap mixing selesai, lanjut ke tahap push.");
-            digitalWrite(relayPins[PUMP_A_RELAY_INDEX], HIGH); // Matikan Pompa A
-            digitalWrite(relayPins[PUMP_B_RELAY_INDEX], HIGH); // Matikan Pompa B
+            digitalWrite(relayPins[PUMP_A_RELAY_INDEX], HIGH);
+            digitalWrite(relayPins[PUMP_B_RELAY_INDEX], HIGH);
             relayStates[PUMP_A_RELAY_INDEX] = false;
             relayStates[PUMP_B_RELAY_INDEX] = false;
 
             fertilizerDoseState = FERTILIZER_PUSHING;
-            fertilizerDoseStartTime = millis(); // Reset timer
-            digitalWrite(relayPins[PUMP_MIX_RELAY_INDEX], LOW); // Nyalakan Pompa Mix
+            fertilizerDoseStartTime = millis();
+            digitalWrite(relayPins[PUMP_MIX_RELAY_INDEX], LOW);
             relayStates[PUMP_MIX_RELAY_INDEX] = true;
         }
     } else if (fertilizerDoseState == FERTILIZER_PUSHING) {
         if (millis() - fertilizerDoseStartTime >= FERTILIZER_PUSH_DURATION) {
             Serial.println("Sekuens dosing nutrisi selesai.");
-            digitalWrite(relayPins[PUMP_MIX_RELAY_INDEX], HIGH); // Matikan Pompa Mix
+            digitalWrite(relayPins[PUMP_MIX_RELAY_INDEX], HIGH);
             relayStates[PUMP_MIX_RELAY_INDEX] = false;
             
             fertilizerDoseState = FERTILIZER_IDLE;
-            lastFertilizerDoseTime = millis(); // Mulai cooldown
+            lastFertilizerDoseTime = millis();
         }
     }
 }
