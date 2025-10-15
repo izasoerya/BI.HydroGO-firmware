@@ -8,6 +8,7 @@ void setup()
 	lcd.backlight();
 	lcd.setCursor(0, 0);
 	lcd.print("Inisialisasi...");
+	configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
 
 	for (int i = 0; i < NUM_BUTTONS; i++)
 		pinMode(buttonPins[i], INPUT_PULLUP);
@@ -38,6 +39,12 @@ void loop()
 	else if (currentMode == CALIBRATION)
 	{
 		handleCalibrationMode();
+	}
+
+	if (millis() - lastTimeUpdate >= TIME_UPDATE_INTERVAL)
+	{
+		timeinfo = updateLocalTime();
+		lastDay = timeinfo.tm_yday;
 	}
 
 	if (millis() - lastLcdUpdate >= LCD_UPDATE_INTERVAL)
@@ -106,7 +113,6 @@ void handleNormalMode()
 	handlePhDosing();
 	handleFertilizerDosing();
 	handleAutomationTask();
-	handleFertilizerAutomation();
 	if (WiFi.status() == WL_CONNECTED && millis() - lastSupabaseSend >= SUPABASE_SEND_INTERVAL)
 	{
 		lastSupabaseSend = millis();
@@ -303,49 +309,35 @@ void updateCalibrationDisplay()
 
 void handleAutomationTask()
 {
-	if (millis() < AUTOMATION_START_DELAY)
-		return;
-	if (digitalRead(buttonPins[1]) == LOW)
-		return;
-	if (millis() - lastPhDoseTime < PUMP_PH_COOLDOWN_DURATION)
-		return;
-	if (!sensorService.isPhActiveNow())
-		return;
-
-	float currentPh = sensorService.getCalibratedPHValue() + phCalibrationOffset;
-	if (currentPh <= 0)
-		return;
-
-	if (currentPh < phTargetMin)
+	// Every 2 day, at 9 AM, do watering PH and TDS buffer
+	if (timeinfo.tm_hour == 9 && timeinfo.tm_yday - 2 == lastDay && !isWatered)
 	{
-		startPhDose(PUMP_PH_PLUS_RELAY_INDEX);
+		if (digitalRead(buttonPins[1]) == LOW) // Right Now Pump is ON by MANUAL OVERRIDE
+			return;
+		float currentPh = sensorService.getCalibratedPHValue() + phCalibrationOffset;
+		float currentTds = sensorService.getCalibratedTDSValue(25.0) + tdsCalibrationOffset;
+		if (currentPh <= 0)
+			return;
+		if (currentPh < phTargetMin)
+		{
+			startPhDose(PUMP_PH_PLUS_RELAY_INDEX);
+		}
+		else if (currentPh > phTargetMax)
+		{
+			startPhDose(PUMP_PH_MINUS_RELAY_INDEX);
+		}
+		if (currentTds < tdsTargetMin)
+		{
+			if (fertilizerDoseState == FERTILIZER_IDLE)
+				return;
+			startFertilizerDose();
+		}
+		isWatered = true;
+		lastDay = timeinfo.tm_yday;
 	}
-	else if (currentPh > phTargetMax)
+	if (timeinfo.tm_yday == lastDay + 1)
 	{
-		startPhDose(PUMP_PH_MINUS_RELAY_INDEX);
-	}
-}
-
-void handleFertilizerAutomation()
-{
-	if (millis() < AUTOMATION_START_DELAY)
-		return;
-	if (digitalRead(buttonPins[1]) == LOW)
-		return;
-	if (millis() - lastFertilizerDoseTime < FERTILIZER_COOLDOWN_DURATION)
-		return;
-	if (sensorService.isPhActiveNow())
-		return;
-	if (fertilizerDoseState != FERTILIZER_IDLE)
-		return;
-
-	float currentTds = sensorService.getCalibratedTDSValue(25.0) + tdsCalibrationOffset;
-	if (currentTds <= 0)
-		return;
-
-	if (currentTds < tdsTargetMin)
-	{
-		startFertilizerDose();
+		isWatered = false;
 	}
 }
 

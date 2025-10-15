@@ -36,12 +36,18 @@ const int PUMP_PH_MINUS_RELAY_INDEX = 3; // Pompa 4: pH Down
 const int PUMP_PH_PLUS_RELAY_INDEX = 4;  // Pompa 5: pH Up
 
 const unsigned long AUTOMATION_START_DELAY = 180000; // 3 menit
-const unsigned long LCD_UPDATE_INTERVAL = 500;
+const unsigned long LCD_UPDATE_INTERVAL = 500;       // 0.5 second
+const unsigned long TIME_UPDATE_INTERVAL = 5000;     // 5 second
 
 // --- PENGATURAN UNTUK DEMO PAMERAN ---
 // Pengaturan Dosing pH
 const unsigned long PUMP_PH_ON_DURATION = 2000;        // 2 detik
 const unsigned long PUMP_PH_COOLDOWN_DURATION = 15000; // DEMO: 15 detik (Normal: 30000)
+const bool AUTOMATION_DO_WHILE = false;                // Immediately ON is disabled (false)
+const unsigned long AUTOMATION_TRIGGER = 9;            // 9 AM
+const unsigned long AUTOMATION_DELAY_DAY = 2;          // every 2 day
+const unsigned long THRESHOLD_PH = 8;                  // Set threshold PH
+const unsigned long THRESHOLD_TDS = 1200;              // Set threshold TDS
 
 // Pengaturan Dosing Pupuk
 const unsigned long FERTILIZER_MIX_DURATION = 5000;       // 5 detik Pompa A & B nyala
@@ -88,6 +94,7 @@ unsigned long lastPhDoseTime = 0;
 unsigned long lastFertilizerDoseTime = 0;
 unsigned int autoDoseCount = 0;
 unsigned long lastLcdUpdate = 0;
+unsigned long lastTimeUpdate = 0;
 float lastKnownPh = -1.0;
 float lastKnownTds = -1.0;
 bool isPhDosing = false;
@@ -98,6 +105,12 @@ bool relayStates[NUM_RELAYS] = {false};
 float phTargetMin = 5.8;
 float phTargetMax = 6.2;
 float tdsTargetMin = 700;
+const char *ntpServer = "pool.ntp.org";
+const long gmtOffset_sec = 7;
+const int daylightOffset_sec = 3600;
+struct tm timeinfo;
+byte lastDay = 0;
+byte isWatered = false;
 
 // --- FUNGSI PROTOTIPE ---
 void loadConfiguration();
@@ -108,11 +121,36 @@ void updateCalibrationDisplay();
 void setupWifi();
 void sendToSupabase();
 void handleAutomationTask();
-void handleFertilizerAutomation();
 void startPhDose(int relayIndex);
 void handlePhDosing();
 void startFertilizerDose();
 void handleFertilizerDosing();
+tm updateLocalTime()
+{
+    tm timeinfo;
+    if (!getLocalTime(&timeinfo))
+    {
+        Serial.println("Failed to obtain time");
+    }
+    Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
+    Serial.print("Day of week: ");
+    Serial.println(&timeinfo, "%A");
+    Serial.print("Month: ");
+    Serial.println(&timeinfo, "%B");
+    Serial.print("Day of Month: ");
+    Serial.println(&timeinfo, "%d");
+    Serial.print("Year: ");
+    Serial.println(&timeinfo, "%Y");
+    Serial.print("Hour: ");
+    Serial.println(&timeinfo, "%H");
+    Serial.print("Hour (12 hour format): ");
+    Serial.println(&timeinfo, "%I");
+    Serial.print("Minute: ");
+    Serial.println(&timeinfo, "%M");
+    Serial.print("Second: ");
+    Serial.println(&timeinfo, "%S");
+    return timeinfo;
+}
 
 // --- OBJEK & VARIABEL GLOBAL ---
 LiquidCrystal_I2C lcd(LCD_ADDRESS, LCD_COLS, LCD_ROWS);
