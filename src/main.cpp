@@ -9,6 +9,8 @@ void setup()
 	lcd.setCursor(0, 0);
 	lcd.print("Inisialisasi...");
 	configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+	timeinfo = updateLocalTime(); // Call it once to populate timeinfo
+	lastDay = timeinfo.tm_yday;	  // Set the *initial* boot day
 
 	for (int i = 0; i < NUM_BUTTONS; i++)
 		pinMode(buttonPins[i], INPUT_PULLUP);
@@ -44,7 +46,7 @@ void loop()
 	if (millis() - lastTimeUpdate >= TIME_UPDATE_INTERVAL)
 	{
 		timeinfo = updateLocalTime();
-		lastDay = timeinfo.tm_yday;
+		// lastDay = timeinfo.tm_yday;
 	}
 
 	if (millis() - lastLcdUpdate >= LCD_UPDATE_INTERVAL)
